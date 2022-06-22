@@ -1,0 +1,170 @@
+declare @db as varchar(100)
+declare @dbname as varchar(100)
+declare @rname as varchar(100)
+declare @ptype as varchar(100)
+declare @permname as varchar(100)
+declare @query as varchar(max)
+declare @db5 as varchar(100)
+declare @username varchar(100)
+declare @username1 varchar(100)
+declare @userrole varchar(100)
+declare @dbname5 varchar(100)
+declare @query4 as varchar(max)
+declare @query5 as varchar(max)
+declare @query6 as varchar(max)
+declare @user_type varchar(100)
+declare @perm1 as varchar(1000)
+declare @perm2 as varchar(1000)
+declare @perm3 as varchar(1000)
+declare @perm4 as varchar(1000)
+declare @perm5 as varchar(1000)
+declare @perm6 as varchar(1000)
+declare @perm7 as varchar(1000)
+declare @perm8 as varchar(1000)
+declare @usertype as varchar(100)
+declare db5 cursor for select name from sys.databases where database_id not in (1,2,3,4) and state_desc in ('ONLINE','READ-ONLY')
+and name not in ('DWConfiguration','DWDiagnostics','DWQueue')
+open db5
+print '-------- Users and Roles Start -------------'
+print '                                                   '
+fetch next from db5 into @db5
+while @@fetch_status = 0
+begin
+print '------------'+ @db5 + '------------'  
+SET @query4 = 'use ' + '[' + @db5 + ']' +' ; ' +' declare users cursor global for 
+   select distinct p.name username,p.type
+FROM sys.database_principals p 
+left outer join sys.database_role_members roles on roles.member_principal_id = p.principal_id
+left outer join sys.database_principals pp ON roles.role_principal_id = pp.principal_id order by p.name;' + ' open users';
+EXEC(@query4)
+fetch next from  users into @username,@user_type
+while @@fetch_status = 0
+begin
+if(@user_type in ('U','S') and  @username not in ('dbo','sys','guest','INFORMATION_SCHEMA'))
+begin
+print 'USE ' + @db5 + ' ; ' + 'IF NOT EXISTS (SELECT Name FROM sys.database_principals where name='+''''+ @username +'''' + ' and type !=' + '''R'''+ ')' + ' create user ' + '['+ @username + ']'+ ' for login ' + '['+ @username + ']' + ' ; '
+end
+fetch next from  users into @username,@user_type
+end
+print '                                   ';
+SET @query5 = 'use ' + '[' + @db5 + ']' +' ; ' +' declare userrole cursor global read_only for 
+   select p.name username,pp.name userrole,p.type usertype
+FROM sys.database_principals p 
+left outer join sys.database_role_members roles on roles.member_principal_id = p.principal_id
+left outer join sys.database_principals pp ON roles.role_principal_id = pp.principal_id order by p.name,pp.name;' + ' open userrole';
+EXEC(@query5) 
+fetch next from  userrole into @username1,@userrole,@usertype
+while @@fetch_status = 0
+begin
+if(@usertype in('U','S') and  @username1 not in ('dbo','sys','guest','INFORMATION_SCHEMA'))
+begin
+--print 'hi'
+print 'USE ' + @db5 + ' ; ' + ' EXEC sp_addrolemember N''' + @userrole + ''',N''' + @username1 + ''' ; '
+end
+fetch next from userrole into @username1,@userrole,@usertype
+end
+print '                                                   '
+set @query6 ='use ' + '[' + @db5 + ']' +' ; ' +' declare priv cursor global read_only
+for SELECT PER.state_desc AS PermState ,PER.class_desc AS PermClass 
+      ,OBJ.name AS ObjName,SCH.name SchName,PRC.name AS PrincName 
+      ,PRC.type_desc AS PrincType ,GRT.name AS GrantorName ,PER.permission_name AS PermName       
+FROM sys.database_permissions AS PER INNER JOIN sys.database_principals AS PRC ON PER.grantee_principal_id = PRC.principal_id 
+     INNER JOIN sys.database_principals AS GRT ON PER.grantor_principal_id = GRT.principal_id LEFT JOIN sys.objects AS OBJ 
+         ON PER.major_id = OBJ.object_id LEFT JOIN sys.schemas AS SCH ON OBJ.schema_id = SCH.schema_id 
+     LEFT JOIN sys.columns AS COL ON PER.major_id = COL.object_id AND PER.minor_id = COL.column_id WHERE PER.major_id >= 0 ; ' + ' open priv'
+EXEC(@query6)
+fetch next from  priv into  @perm1,@perm2,@perm3,@perm4,@perm5,@perm6,@perm7,@perm8
+while @@fetch_status = 0
+begin
+-------- GUEST and PUBLIC users are excluded --------
+if(@perm5 != 'GUEST' and @perm5 != 'PUBLIC')
+begin
+if(@perm2 = 'OBJECT_OR_COLUMN')
+begin
+print(@perm1 + SPACE(1) + @perm8 + ' ON ' + QUOTENAME(@perm4) + '.' + QUOTENAME(@perm3) + ' TO ' + QUOTENAME(@perm5));
+end
+if(@perm2 ='SCHEMA')
+begin
+print(@perm1 + SPACE(1) + @perm8 + ' ON  SCHEMA::dbo' + ' TO '+ @perm5)
+end
+end
+fetch next from  priv into @perm1,@perm2,@perm3,@perm4,@perm5,@perm6,@perm7,@perm8
+end
+close users
+deallocate users
+close userrole
+deallocate userrole
+close priv
+deallocate priv
+fetch next from db5 into @db5
+end
+print '                                                   '
+print '-------- Users and Roles End -------------'
+close db5
+deallocate db5
+declare db cursor for select name from sys.databases where database_id not in (1,2,3,4) --and name='DIGIX'
+--state_desc in ('ONLINE','READ-ONLY')
+open db
+print '                                                   '
+print '------------Database Roles Start-------------------'
+fetch next from db into @db
+while @@fetch_status = 0
+begin
+print '------------'+ @db + '------------' 
+SET @query = 'use ' + '[' + @db + ']' +' ; ' +' declare roles cursor global read_only for 
+   SELECT distinct DB_NAME() ,p.[name],p.[type_desc],dbp.[permission_name]
+  FROM [sys].[database_permissions] dbp LEFT JOIN [sys].[objects] so
+    ON dbp.[major_id] = so.[object_id] LEFT JOIN [sys].[database_principals] p
+    ON dbp.[grantee_principal_id] = p.[principal_id] LEFT JOIN [sys].[database_principals] p2
+    ON dbp.[grantor_principal_id] = p2.[principal_id];' + ' open roles';
+    EXEC(@query)
+fetch next from  roles into @dbname,@rname,@ptype,@permname
+while @@fetch_status = 0
+begin
+if(@ptype in ('DATABASE_ROLE') and @rname not in ('public'))
+begin
+print 'USE ' + @db + ' ; ' + 'IF NOT EXISTS (SELECT Name FROM sys.database_principals where name='+''''+ @rname +'''' + ' and type =' + '''R'''+ ')' + ' create role ' + '['+ @rname + '] ' +  ' ; '
+if(@rname='DBDEVELOPER') 
+begin
+print 'ALTER ROLE [DBEXECUTOR] ADD MEMBER ' + @rname
+print 'ALTER ROLE [db_datareader] ADD MEMBER ' + @rname
+print 'ALTER ROLE [db_datawriter] ADD MEMBER ' + @rname
+print 'GRANT VIEW DEFINITION ON DATABASE :: ' + @db + ' TO ' + @rname
+print 'Grant ' + @permname + ' TO ' + @rname 
+end
+else if(@rname='DBANALYST') 
+begin
+print 'ALTER ROLE [db_datareader] ADD MEMBER ' + @rname
+print 'Grant ' + @permname + ' TO ' + @rname 
+end
+else if(@rname='DBEXECUTOR') 
+begin
+print 'Grant ' + @permname + ' TO ' + @rname 
+end
+else if(@rname='DBTESTER') 
+begin
+print 'ALTER ROLE [db_datareader] ADD MEMBER ' + @rname
+print 'ALTER ROLE [db_datawriter] ADD MEMBER ' + @rname
+print 'GRANT VIEW DEFINITION ON DATABASE :: ' + @db + ' TO ' + @rname
+end
+else if(@rname='DBAPPLICATION')
+begin
+print 'ALTER ROLE [db_datareader] ADD MEMBER' + ' ' + @rname
+print 'ALTER ROLE [db_datawriter] ADD MEMBER' + ' ' + @rname
+print 'ALTER ROLE [DBEXECUTOR] ADD MEMBER' + ' ' + @rname
+end
+else
+begin
+print 'New Role Found'
+end
+end
+fetch next from  roles into @dbname,@rname,@ptype,@permname
+end
+close roles
+deallocate roles
+fetch next from db into @db
+end
+print '                                                   '
+print '------------Database Roles End-------------------'
+close db 
+deallocate db
